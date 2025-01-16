@@ -1,0 +1,12 @@
+{
+    "queries": {
+        "query": [
+            {
+                "passenger_count": 2
+            },
+            {
+                "passenger_count": 3
+            }
+        ]
+    }
+}

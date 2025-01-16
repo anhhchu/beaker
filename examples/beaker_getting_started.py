@@ -160,10 +160,9 @@ print(metrics_pdf)
 # MAGIC The query file format should follow the format:
 # MAGIC
 # MAGIC ```
-# MAGIC -- a unique query identifier (header) followed by a newline
-# MAGIC Q1
-# MAGIC
-# MAGIC -- the query body followed by a new line
+# MAGIC -- a unique query identifier (header) wrapped between --
+# MAGIC --Q1--
+# MAGIC -- the query body followed by a semicolon
 # MAGIC SELECT * FROM us_population_2016 WHERE state in ('DE', 'MD', 'VA');
 # MAGIC ```
 
@@ -173,17 +172,15 @@ print(metrics_pdf)
 dbutils.fs.put(
     "file:/tmp/my_query_file.sql",
     """
-Q1
-
+--Q1--
 SELECT count(*)
   FROM delta.`/databricks-datasets/nyctaxi/tables/nyctaxi_yellow`
- WHERE passenger_count = 1
+ WHERE passenger_count = 1;
  
-Q2
-
+--Q2--
 SELECT count(*)
   FROM delta.`/databricks-datasets/nyctaxi/tables/nyctaxi_yellow`
- WHERE passenger_count > 2
+ WHERE passenger_count > 2;
 """,
     overwrite=True,
 )

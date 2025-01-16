@@ -5,16 +5,13 @@ Execute query benchmark tests against Databricks SQL warehouses and clusters.
 
 ## Examples
 
-There are three examples:
+There are 2 examples:
 
-#### examples/beaker_standalone.py
-Standalone. Run from example directory as `> python beaker_standalone.py`.
-
-#### examples/getting_started.ipynb
-Run in any jupyter notebook environment.
+#### examples/beaker_standalone.py or examples/beaker_standalone_new_wh.py
+Standalone. Run from example directory as `> python beaker_standalone.py` or `> python beaker_standalone_new_wh.py`.
 
 #### examples/beaker_getting_started.py
-Databricks notebook source.
+Databricks notebook source, run on databricks workspace
 
 
 ## Getting Started
@@ -34,8 +31,8 @@ Currently the package is not published to PyPi, so you will need to install the 
     <img src="./assets/images/db-cluster-library.png" />
     
 4. Option 3: Install as notebook-scoped library
-   - Upload the wheelfile to `dbfs:/FileStore` then run `%pip install` in your notebook Python cell
-   - `pip install path/to/your/whl_file`
+   - Upload the wheelfile to `dbfs:/FileStore` or a folder location on your Databricks repo
+   - Run `%pip install` in your notebook Python cell: `%pip install path/to/your/whl_file`
 
 ### Usage
 
@@ -107,7 +104,7 @@ select * from beaker_benchmark_tests;
 ## Authentication
 `beaker` connects to the SQL warehouse or cluster using the Databricks REST API 2.0. As a result, connection information is needed.
 
-It's recommended that you do not hard-code authentication secrets. Instead consider using environment variables.
+It's recommended that you do not hard-code authentication secrets. Instead consider using environment variables or specify the variables in an .env file
 
 Example usage:
 
@@ -147,21 +144,6 @@ However, if multiple of the above are provided, the following query format prece
 
 You can test concurrent query execution by listing the benchmark queries in a **file**.
 
-Two query formats are supported.
-
-#### Query file format: original
-The query file must contain queries that are separated using the following format:
-
-```sql
--- a unique query identifier (header) followed by a newline
-Q1
-
--- the query body followed by a new line
-SELECT * FROM us_population_2016 WHERE state in ('DE', 'MD', 'VA');
-
-```
-
-#### Query file format: semicolon-delimited
 The query file must contain queries start with `--query_id--` and end with a semicolon:
 
 ```sql
@@ -172,14 +154,11 @@ select * from foo;
 SELECT * FROM us_population_2016 WHERE state in ('DE', 'MD', 'VA');
 ```
 
-## Viewing the metrics report
-The metrics report is best viewed as a single dataframe (using ```spark_fixture.metrics_to_df_view``` as shown above).
-A temporary view is also created, to make querying the output and building local visualizations easier. 
 
 <img src="./assets/images/metrics_visualization.png" />
 
 ## Contributing
-Please help! Drop me a line at: will.girten@databricks.com if you're interested.
+Drop us a line at: will.girten@databricks.com or anhhoang.chu@databricks.com if you're interested.
 
 ## Legal Information
 This software is provided as-is and is not officially supported by Databricks through customer technical support channels. Support, questions, and feature requests can be submitted through the Issues page of this repo. Please see the [legal agreement](LICENSE) and understand that issues with the use of this code will not be answered or investigated by Databricks Support.

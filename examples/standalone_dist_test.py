@@ -15,17 +15,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# import logging
-# logger = logging.getLogger()
-# logger.setLevel(logging.INFO)
-
-
 hostname = os.getenv("DATABRICKS_HOST")
 http_path = os.getenv("DATABRICKS_HTTP_PATH")
 # Don't put tokens in plaintext in code
 access_token = os.getenv("DATABRICKS_ACCESS_TOKEN")
 
-print(hostname)
 bm = benchmark.Benchmark()
 bm.setName(name="standalone_dist_test")
 bm.setHostname(hostname=hostname)
@@ -41,11 +35,18 @@ SELECT count(*)
 """
 
 bm.setQuery(query=query_str)
-# bm.setQueryFileDir("queries")
-# bm.setQueryFile("queries_orig/q1.sql")
-bm.setCatalog(catalog="hive_metastore")
+metrics_pdf = bm.execute()
+print(metrics_pdf)
 
+print("---- Specify query with params ------")
+query_str = """
+SELECT count(*)
+  FROM delta.`/databricks-datasets/nyctaxi/tables/nyctaxi_yellow`
+ WHERE passenger_count > :passenger_count;
+"""
 
+bm.setQuery(query=query_str)
+bm.setParamsPath("./single_query_params.json")
 metrics_pdf = bm.execute()
 print(metrics_pdf)
 

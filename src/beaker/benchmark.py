@@ -19,15 +19,13 @@ thread_local = threading.local()
 class Benchmark:
     """Encapsulates a query benchmark test."""
 
-    QUERY_FILE_FORMAT_ORIGINAL = "original"
-    QUERY_FILE_FORMAT_SEMICOLON_DELIM = "semicolon-delimited"
-
     def __init__(
         self,
         name="beaker_benchmark",
         query=None,
         query_file=None,
         query_file_dir=None,
+        params_path=None,
         concurrency=1,
         query_repeat_count=1,
         db_hostname=None,
@@ -37,12 +35,13 @@ class Benchmark:
         schema="default",
         new_warehouse_config=None,
         results_cache_enabled=False,
-        query_file_format=QUERY_FILE_FORMAT_ORIGINAL,
+        query_file_format = "semicolon-delimited"
     ):
         self.name = self._clean_name(name)
         self.query = query
         self.query_file = query_file
         self.query_file_dir = query_file_dir
+        self.params_path = params_path
         self.concurrency = concurrency
         self.query_repeat_count = query_repeat_count
         self.setHostname(db_hostname)
@@ -52,11 +51,12 @@ class Benchmark:
         self.schema = schema
         self.new_warehouse_config = new_warehouse_config
         self.results_cache_enabled = results_cache_enabled
+        self.query_file_format = query_file_format
         # Check if a new SQL warehouse needs to be created
         if new_warehouse_config is not None:
             self.setWarehouseConfig(new_warehouse_config)
-        self.query_file_format = query_file_format
         self.sql_warehouse = None
+
 
     def _create_dbc(self):
         sql_warehouse = SQLWarehouseUtils(
@@ -178,6 +178,10 @@ class Benchmark:
         """Sets the query file to use."""
         self.query_file = query_file
 
+    def setParamsPath(self, params_path):
+        """Sets path to params.json file"""
+        self.params_path = params_path
+
     def _validateQueryFileDir(self, query_file_dir):
         """Validates the query file directory."""
         return os.path.isdir(query_file_dir)
@@ -189,15 +193,16 @@ class Benchmark:
         ), "Invalid query file directory."
         self.query_file_dir = query_file_dir
 
-    def _execute_single_query(self, query, id=None):
+    def _execute_single_query(self, query, id=None, param=None):
         query = query.strip()
         start_time = time.perf_counter()
-        self.sql_warehouse.execute_query(query)
+        self.sql_warehouse.execute_query(query, param)
         end_time = time.perf_counter()
         elapsed_time = f"{end_time - start_time:0.3f}"
  
         metrics = {
             "id": id,
+            "param": param,
             "hostname": self.hostname,
             "http_path": self.http_path,
             "warehouse_name": self.warehouse_name,
@@ -217,29 +222,14 @@ class Benchmark:
         if self.schema:
             query = f"USE SCHEMA {self.schema}"
             self._execute_single_query(query)
-
-    def _parse_queries(self, raw_queries):
-        split_raw = re.split(r"(Q\d+\n+)", raw_queries)[1:]
-        split_clean = list(map(str.strip, split_raw))
-        headers = split_clean[::2]
-        queries = split_clean[1::2]
-        # add query_id to the query for history metrics extraction
-        queries = [f"--{header.strip()}--\n{query}" for header, query in zip(headers, queries)]
-        return headers, queries
-
-    def _get_queries_from_file_format_orig(self, f):
-        with open(f, "r") as of:
-            raw_queries = of.read()
-            file_headers, file_queries = self._parse_queries(raw_queries)
-        queries = [e for e in zip(file_queries, file_headers)]
-        return queries
     
-    def _get_queries_from_file_format_semi(self, file_path):
+    def _get_queries_from_file(self, file_path, params_path=None):
         """
-        Parses a SQL file and returns a list of tuples with the query_id and the query text.
+        Parses a SQL file and returns a list of tuples with the (query_text, query_id, param=None).
 
         Parameters:
         file_path (str): The path to the SQL file.
+        params_path (str): path to the params.json file for the query
 
         Returns:
         list: A list of tuples, where each tuple contains a query_id and a query text.
@@ -249,41 +239,54 @@ class Benchmark:
 
         matches = re.findall(r'--(.*?)--\s*(.*?);', content, re.DOTALL)
 
-        queries = [(f"--{query_id}--\n{query_text.strip()};", query_id) for query_id, query_text in matches]
-        return queries
-
-
-    def _get_queries_from_file(self, query_file):
-        if self.query_file_format == self.QUERY_FILE_FORMAT_SEMICOLON_DELIM:
-            return self._get_queries_from_file_format_semi(query_file)
-        elif self.query_file_format == self.QUERY_FILE_FORMAT_ORIGINAL:
-            return self._get_queries_from_file_format_orig(query_file)
+        if params_path:
+            with open(params_path, 'r') as f:
+                data = json.load(f)
         else:
-            raise Exception("unknown file format")
+            return [(f"--{query_id}--\n{query_text.strip()};", query_id, None) for query_id, query_text in matches ] 
 
-    def _execute_queries_from_file(self, query_file):
-        queries = self._get_queries_from_file(query_file)
+        queries_w_params = []
+        for query_id, query_text in matches:
+            if query_id in data:
+                for param in data.get(query_id):
+                    query = f"--{query_id}|{param}--\n{query_text.strip()};"
+                    queries_w_params.append((query, query_id, param))
+            else:
+                queries_w_params.append((f"--{query_id}--\n{query_text.strip()};", query_id, None))
+        return queries_w_params
+
+
+    def _execute_queries_from_file(self, query_file, params_path):
+        queries = self._get_queries_from_file(query_file, params_path)
         metrics = self._execute_queries(queries, self.concurrency)
         return metrics
 
     def _get_query_filenames_from_dir(self, query_file_dir):
-        return [os.path.join(query_file_dir, f) for f in os.listdir(query_file_dir)]
+        return [os.path.join(query_file_dir, f) for f in os.listdir(query_file_dir) if f.endswith('.sql')]
 
-    def _get_queries_from_dir(self, query_dir):
-        query_files = self._get_query_filenames_from_dir(query_dir)
+    def _get_queries_from_dir(self, query_dir, params_path=None):
+        query_files = self._get_query_filenames_from_dir(query_dir) 
         queries = []
         for qf in query_files:
-            qs = self._get_queries_from_file(qf)
+            qs = self._get_queries_from_file(qf, params_path)
             queries += qs
         return queries
 
-    def _execute_queries_from_dir(self, query_dir):
-        queries = self._get_queries_from_dir(query_dir)
+    def _execute_queries_from_dir(self, query_dir, params_path=None):
+        queries = self._get_queries_from_dir(query_dir, params_path)
         metrics = self._execute_queries(queries, self.concurrency)
         return metrics
 
-    def _execute_queries_from_query(self, query):
-        metrics = self._execute_queries([(query, "query")], self.concurrency)
+    def _execute_queries_from_query(self, query, params_path=None):
+        if params_path:
+            with open(params_path, 'r') as f:
+                data = json.load(f)
+
+            params = data["query"]
+            queries = [(f"--query|{param}--\n{query.strip()};", "query", param) for param in params]
+            metrics = self._execute_queries(queries, self.concurrency)
+        else:
+            metrics = self._execute_queries([(f"--query--\n{query.strip()};", "query", None)], self.concurrency)
         return metrics
 
     def _execute_queries(self, queries, num_threads):
@@ -296,8 +299,8 @@ class Benchmark:
         for query_bucket in bucketed_queries:
             print(f'Executing {len(query_bucket)} queries concurrently on {self.warehouse_name}')
             with ThreadPoolExecutor(max_workers=num_threads) as executor:
-                futures = [executor.submit(self._execute_single_query, query, id) for query, id in query_bucket]
-                    # executor.map(lambda x: self._execute_single_query(*x), queries)
+                futures = [executor.submit(self._execute_single_query, query, id, param) for query, id, param in query_bucket]
+
                 # wait(futures, return_when=ALL_COMPLETED)
             metrics_list = metrics_list + [future.result() for future in futures]
         return metrics_list
@@ -352,19 +355,19 @@ class Benchmark:
             return end_res
         else:
             raise Exception("Failed to retrieve successful query history")
-        
-    def clean_query_metrics(self, raw_metrics_pdf):
-        logging.info(f"Clean Query Metrics {self.warehouse_name}")
-        metrics_pdf = json_normalize(raw_metrics_pdf['metrics'].apply(str).apply(eval))
-        metrics_pdf["id"] = raw_metrics_pdf["id"]
-        metrics_pdf["query_id"] = raw_metrics_pdf["query_id"]
-        metrics_pdf["query_text"] = raw_metrics_pdf["query_text"]
-        metrics_pdf["status"] = raw_metrics_pdf["status"]
-        metrics_pdf["warehouse_name"] = raw_metrics_pdf["warehouse_name"]
 
-        # Reorder the columns
-        metrics_pdf = metrics_pdf.reindex(columns=['id', 'warehouse_name', 'query_text', 'query_id'] + [c for c in metrics_pdf.columns if c not in ['id', 'warehouse_name', 'query_text', 'query_id']])      
-        return metrics_pdf
+    def _clean_query_history(self, warehouse_id, start_ts_ms, end_ts_ms):
+        history_metrics = self.get_query_history(warehouse_id, start_ts_ms, end_ts_ms)
+        history_pdf = pd.DataFrame(history_metrics)
+        history_pdf["warehouse_name"] = self.warehouse_name
+        ## Extract the text from query_text, if missing value, use 'query'
+        history_pdf['id'] = history_pdf['query_text'].str.extract(r'--(.*?)--', flags=re.IGNORECASE).fillna('query')
+
+        # Split the extracted text by "|" to queryId and queryParam and safely handle the cases where the index 1 doesn't exist
+        # history_pdf['id'] = extracted_text[0].str.split("|").apply(lambda x: x[0] if len(x) > 0 else "")
+        # history_pdf['param'] = history_pdf['id'].str.split("|").apply(lambda x: x[1] if len(x) > 1 else "")
+
+        return history_pdf
 
     def _get_warehouse_info(self):
         """Gets the warehouse name as it's not available in the config and in http_path."""
@@ -392,24 +395,20 @@ class Benchmark:
 
         if self.query_file_dir is not None:
             logging.info("Loading query files from directory.")
-            metrics = self._execute_queries_from_dir(self.query_file_dir)
+            metrics = self._execute_queries_from_dir(self.query_file_dir, self.params_path)
         elif self.query_file is not None:
             logging.info("Loading query file.")
-            metrics = self._execute_queries_from_file(self.query_file)
+            metrics = self._execute_queries_from_file(self.query_file, self.params_path)
         elif self.query is not None:
             logging.info("Executing single query.")
-            metrics = self._execute_queries_from_query(self.query)
+            metrics = self._execute_queries_from_query(self.query, self.params_path)
         else:
             raise ValueError("No query specified.")
 
         end_ts_ms = int(time.time() * 1000)
 
-        history_metrics = self.get_query_history(self.warehouse_id, start_ts_ms, end_ts_ms)
-        history_pdf = pd.DataFrame(history_metrics)
-        history_pdf["warehouse_name"] = self.warehouse_name
-        ## Extract query ID from query_text, if query ID is not present, use 'query'
-        history_pdf['id'] = history_pdf['query_text'].str.extract(r'--(.*?)--', flags=re.IGNORECASE).fillna('query')
-        print("Benchmark completed")
+        history_pdf = self._clean_query_history(self.warehouse_id, start_ts_ms, end_ts_ms)
+        print(f"Benchmark completed on {self.warehouse_name}")
         return history_pdf
 
     def preWarmTables(self, tables):

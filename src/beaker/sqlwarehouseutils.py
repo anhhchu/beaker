@@ -61,11 +61,14 @@ class SQLWarehouseUtils:
         return connection
 
 
-    def execute_query(self, query_str):
+    def execute_query(self, query_str, param=None):
         # create a seperate connection for each query to facilitate concurrency
         connection = self._get_connection()
         cursor = connection.cursor()
-        cursor.execute(query_str)
+        if param:
+            cursor.execute(query_str, param)
+        else:
+            cursor.execute(query_str)
         cursor.close()
         connection.close()
 

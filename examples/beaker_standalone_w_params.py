@@ -22,46 +22,25 @@ print("---- USE EXISTING WAREHOUSE ------")
 http_path = os.getenv("DATABRICKS_HTTP_PATH")
 
 bm = benchmark.Benchmark()
-bm.setName(name="simple_test")
+bm.setName(name="simple_test_w_params")
 bm.setHostname(hostname=hostname)
 bm.setWarehouseToken(token=access_token)
 bm.setWarehouse(http_path=http_path)
 bm.setQueryRepeatCount(1)
 bm.setConcurrency(2)
+bm.setCatalog(catalog=catalog_name)
+bm.setSchema(schema=schema_name)
 
-print("---- Specify query in code ------")
-query_str = """
-SELECT count(*)
-  FROM delta.`/databricks-datasets/nyctaxi/tables/nyctaxi_yellow`
- WHERE passenger_count > 2;
-"""
-bm.setQuery(query=query_str)
 
+print("---- Specify a single query file with params ------")
+
+bm.setQueryFile("queries_params/q1.sql")
+bm.setParamsPath("queries_params/params.json")
 metrics_pdf = bm.execute()
 print(metrics_pdf)
 
-
-print("---- Specify a single query file ------")
-bm.setQueryFile("queries/q1.sql")
-metrics_pdf = bm.execute()
-print(metrics_pdf)
-
-
-print("---- Specify a query directory ------")
-bm.setQueryFileDir("queries")
-metrics_pdf = bm.execute()
-print(metrics_pdf)
-
-## PARAMS QUERY ###
-
-print("---- Specify query in code with params ------")
-query_str = """
-SELECT count(*)
-  FROM delta.`/databricks-datasets/nyctaxi/tables/nyctaxi_yellow`
- WHERE passenger_count > :passenger_count;
-"""
-
-bm.setQuery(query=query_str)
-bm.setParamsPath("./single_query_params.json")
+print("---- Specify a query directory with params ------")
+bm.setQueryFileDir("queries_params")
+bm.setParamsPath("queries_params/params.json")
 metrics_pdf = bm.execute()
 print(metrics_pdf)
